@@ -182,12 +182,10 @@ public class L3Routing implements IFloodlightModule, IOFSwitchListener,
 		Map<Long, Integer> res = new HashMap<Long, Integer>();
 		Queue<Long> q = new LinkedList<Long>();
 		q.add(initId);
-		
+		dist.put(initId, 0);		
 
 		while (!q.isEmpty()) {
 			Long curr = q.remove();
-			if (null == dist.get(curr))
-				dist.put(curr, 0);
 		
 			for (Long nextHop : this.graph.get(curr).keySet()) {
 				Integer nextDist = dist.get(curr) + 1;
