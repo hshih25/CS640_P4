@@ -6,11 +6,22 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.HashMap;
+import java.util.Queue;
+import java.util.LinkedList;
+
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import edu.wisc.cs.sdn.apps.util.Host;
+import edu.wisc.cs.sdn.apps.util.SwitchCommands;
+
+import org.openflow.protocol.OFMatch;
+import org.openflow.protocol.action.OFAction;
+import org.openflow.protocol.action.OFActionOutput;
+import org.openflow.protocol.instruction.OFInstruction;
+import org.openflow.protocol.instruction.OFInstructionApplyActions;
 
 import net.floodlightcontroller.core.IFloodlightProviderService;
 import net.floodlightcontroller.core.IOFSwitch;
@@ -51,6 +62,7 @@ public class L3Routing implements IFloodlightModule, IOFSwitchListener,
     // Map of hosts to devices
     private Map<IDevice,Host> knownHosts;
 
+	private Map<Long, HashMap<Long, Link>> graph;
 	/**
      * Loads dependencies and initializes data structures.
      */
@@ -107,6 +119,91 @@ public class L3Routing implements IFloodlightModule, IOFSwitchListener,
     private Collection<Link> getLinks()
     { return linkDiscProv.getLinks().keySet(); }
 
+	private OFMatch initialOFMatch(Host host) {
+		OFMatch match = new OFMatch();
+		match.setDataLayerType(OFMatch.ETH_TYPE_IPV4);
+		match.setNetworkDestination(host.getIPv4Address());
+		return match;
+	}
+
+	private void installRules(Host host) {
+		if (host.isAttachedToSwitch()) {
+			Map<Long, Integer> path = findShortestPath(host);
+			OFMatch match = initialOFMatch(host);
+
+			for (Long sw : path.keySet()) {
+				OFAction action = new OFActionOutput(path.get(sw));
+				OFInstruction instruction = new OFInstructionApplyActions(
+					Arrays.asList(action));
+				SwitchCommands.installRule(this.getSwitches().get(sw), this.table, 
+					SwitchCommands.DEFAULT_PRIORITY, match, Arrays.asList(instruction));
+
+			}
+
+			
+		}
+	}
+	
+	private void reInstallRules() {
+		for (Host host : this.getHosts()) {
+			this.removeRule(host);
+			this.installRules(host);
+		}
+	}
+
+	private void removeRule(Host host) {
+		for (IOFSwitch sw : this.getSwitches().values()) {
+			SwitchCommands.removeRules(sw, this.table, initialOFMatch(host));
+		}
+	}
+
+	private void initialGraph() {
+		this.graph = new HashMap<Long, HashMap<Long, Link>>();
+		Collection<Link> links = this.getLinks();
+		
+
+		for (Link link : links) {
+			Long src = link.getSrc();
+			Long dst = link.getDst();
+			HashMap<Long, Link> newVal = this.graph.get(src);
+			if (null == newVal) {
+				newVal = new HashMap<Long, Link>();
+			}
+			newVal.put(dst, link);
+			this.graph.put(src, newVal);
+		}
+
+	}
+
+	private Map<Long, Integer> findShortestPath(Host host) {	
+		this.initialGraph();
+		Long initId = host.getSwitch().getId();
+		Map<Long, Integer> dist = new HashMap<Long, Integer>();
+		Map<Long, Integer> res = new HashMap<Long, Integer>();
+		Queue<Long> q = new LinkedList<Long>();
+		q.add(initId);
+		
+
+		while (!q.isEmpty()) {
+			Long curr = q.remove();
+			if (null == dist.get(curr))
+				dist.put(curr, 0);
+		
+			for (Long nextHop : this.graph.get(curr).keySet()) {
+				Integer nextDist = dist.get(curr) + 1;
+				if (null == dist.get(nextHop) || dist.get(nextHop) > nextDist) {
+					dist.put(nextHop, nextDist);
+					Link link = this.graph.get(curr).get(nextHop);
+					res.put(nextHop, link.getDstPort());
+					q.add(initId);
+				}
+			}
+		}
+
+		return res;
+	}
+
+
     /**
      * Event handler called when a host joins the network.
      * @param device information about the host
@@ -123,7 +220,7 @@ public class L3Routing implements IFloodlightModule, IOFSwitchListener,
 			
 			/*****************************************************************/
 			/* TODO: Update routing: add rules to route to new host          */
-			
+			this.installRules(host);
 			/*****************************************************************/
 		}
 	}
@@ -145,7 +242,7 @@ public class L3Routing implements IFloodlightModule, IOFSwitchListener,
 		
 		/*********************************************************************/
 		/* TODO: Update routing: remove rules to route to host               */
-		
+		this.removeRule(host);
 		/*********************************************************************/
 	}
 
@@ -173,7 +270,8 @@ public class L3Routing implements IFloodlightModule, IOFSwitchListener,
 		
 		/*********************************************************************/
 		/* TODO: Update routing: change rules to route to host               */
-		
+		this.removeRule(host);
+		this.installRules(host);
 		/*********************************************************************/
 	}
 	
@@ -189,7 +287,7 @@ public class L3Routing implements IFloodlightModule, IOFSwitchListener,
 		
 		/*********************************************************************/
 		/* TODO: Update routing: change routing rules for all hosts          */
-		
+		this.reInstallRules();
 		/*********************************************************************/
 	}
 
@@ -205,7 +303,7 @@ public class L3Routing implements IFloodlightModule, IOFSwitchListener,
 		
 		/*********************************************************************/
 		/* TODO: Update routing: change routing rules for all hosts          */
-		
+		this.reInstallRules();
 		/*********************************************************************/
 	}
 
@@ -236,7 +334,7 @@ public class L3Routing implements IFloodlightModule, IOFSwitchListener,
 		
 		/*********************************************************************/
 		/* TODO: Update routing: change routing rules for all hosts          */
-		
+		this.reInstallRules();
 		/*********************************************************************/
 	}
 
