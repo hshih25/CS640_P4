@@ -139,7 +139,11 @@ public class L3Routing implements IFloodlightModule, IOFSwitchListener,
 					SwitchCommands.DEFAULT_PRIORITY, match, Arrays.asList(instruction));
 
 			}
-
+			OFAction action = new OFActionOutput(host.getPort());
+			OFInstruction instruction = new OFInstructionApplyActions(
+				Arrays.asList(action));
+			SwitchCommands.installRule(host.getSwitch(), this.table, 
+					SwitchCommands.DEFAULT_PRIORITY, match, Arrays.asList(instruction));
 			
 		}
 	}
@@ -183,20 +187,23 @@ public class L3Routing implements IFloodlightModule, IOFSwitchListener,
 		Queue<Long> q = new LinkedList<Long>();
 		q.add(initId);
 		dist.put(initId, 0);		
-
+		
 		while (!q.isEmpty()) {
 			Long curr = q.remove();
-		
-			for (Long nextHop : this.graph.get(curr).keySet()) {
+			HashMap<Long, Link> vals = this.graph.get(curr);
+			if (null == vals)
+				continue;
+			for (Long nextHop : vals.keySet()) {
 				Integer nextDist = dist.get(curr) + 1;
 				if (null == dist.get(nextHop) || dist.get(nextHop) > nextDist) {
 					dist.put(nextHop, nextDist);
 					Link link = this.graph.get(curr).get(nextHop);
 					res.put(nextHop, link.getDstPort());
-					q.add(initId);
+					q.add(nextHop);
 				}
 			}
 		}
+
 
 		return res;
 	}
